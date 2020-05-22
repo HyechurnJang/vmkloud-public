@@ -1,0 +1,68 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+'''
+  _   ____  ___                      __ __                 
+ | | / /  |/  /    _____ ________   / //_/__  _______ ___ _
+ | |/ / /|_/ / |/|/ / _ `/ __/ -_) / ,< / _ \/ __/ -_) _ `/
+ |___/_/  /_/|__,__/\_,_/_/  \__/ /_/|_|\___/_/  \__/\_,_/
+ 
+Created on 2019. 12. 5.
+@author: Hye-Churn Jang, CMBU Specialist in Korea, [jangh@vmware.com]
+'''
+
+import os
+import re
+import sys
+import time
+import json
+import traceback
+
+ORGINAL_ANSIBLE_PLAYBOOK_FILE = '/usr/local/bin/ansible-playbook-origin'  # renamed ansible-playbook file
+LOG_FILE = '/tmp/vra8-ansible.log' # or (None or False) or another file path
+INPUT_DELEMETER='?'
+PARAM_DELEMETER=';'
+ARRAY_DELEMETER='&'
+
+def getRealType(val):
+    if re.search('^[0-9]+$', val): return int(val)
+    elif re.search('^[0-9]+\.[0-9]+$', val): return float(val)
+    elif ARRAY_DELEMETER in val: return [getRealType(v) for v in val.split(ARRAY_DELEMETER)]
+    else: return val
+
+def writeErrorLog(msg):
+    with open(LOG_FILE, 'a') as fd: fd.write('----[ %s ]----\nERROR : %s \n\n' % (time.ctime(), msg))
+    exit(-1)
+
+if __name__ == '__main__':
+    try:
+        sys_args = sys.argv[1:]
+        vra_args = sys_args[0]
+        ans_args = sys_args[1:]
+        
+        if vra_args[0] == '"' and vra_args[-1] == '"': vra_args = vra_args[1:-1]
+        elif vra_args[0] == '"': writeErrorLog('incorrect double quotation')
+        elif vra_args[-1] == '"': writeErrorLog('incorrect double quotation')
+          
+        if INPUT_DELEMETER in vra_args:
+            yaml_path, vra_param = vra_args.split(INPUT_DELEMETER)
+            vra_param = vra_param.split(PARAM_DELEMETER)
+        else:
+            yaml_path = vra_args
+            vra_param = []
+         
+        if '--syntax-check' not in ans_args:
+            extra_vars = {}
+            for param in vra_param:
+                kv = re.match('^(?P<key>\w+)=(?P<val>.+)$', param)
+                if kv:
+                    key, val = kv.groups()
+                    extra_vars[key] = getRealType(val)
+            if extra_vars: ans_args.append("--extra-vars='%s'" % json.dumps(extra_vars))
+        
+        ans_args_str = ' '.join(ans_args)
+        ans_str = '%s %s' % (yaml_path, ans_args_str)
+            
+        with open(LOG_FILE, 'a') as fd: fd.write('----[ %s ]----\nVRA-ARGS : %s\nANS-ARGS : %s\nEXECUTE : %s\n\n' % (time.ctime(), vra_args, ans_args_str, ans_str))
+        exit(os.system('%s %s' % (ORGINAL_ANSIBLE_PLAYBOOK_FILE, ans_str)))
+    
+    except Exception as e: writeErrorLog(str(e))

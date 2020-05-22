@@ -1,0 +1,52 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<dunes-script-module name="runSSH" result-type="Properties" api-version="6.0.0" id="1e0635b0-1a75-4dc6-8f9a-505ef7729114" version="0.0.0" category-name="com.vmk">
+  <param n="address" t="string"><![CDATA[]]></param>
+  <param n="port" t="number"><![CDATA[]]></param>
+  <param n="username" t="string"><![CDATA[]]></param>
+  <param n="password" t="SecureString"><![CDATA[]]></param>
+  <param n="commands" t="Array/string"><![CDATA[]]></param>
+  <script encoded="false"><![CDATA[var session = null;
+var result = new Properties();
+try {
+    if (port == null) {
+        port = 22;
+    }
+    session = new SSHSession(address, username, port);
+    session.connectWithPasswordOrIdentity(true, password, null);
+    session.setEncoding('UTF-8');
+    var exitCode = 0;
+    var output = "";
+    var error = "";
+    for (var i in commands) {
+        var command = commands[i];
+        session.executeCommand(command, true);
+        exitCode = session.exitCode;
+        var cmd_output = session.getOutput();
+        if (cmd_output != "") {
+            output = output.concat(cmd_output);
+        }
+        var cmd_error = session.getError();
+        if (cmd_error != "") {
+            error = error.concat(cmd_error);
+        }
+        if (exitCode != 0) {
+            break;
+        }
+    }
+    if (output != "") {
+        System.log("Output ==>\n" + output);
+    }
+    if (error != "") {
+        System.log("Error ==>\n" + error);
+    }
+    result.put("output", output);
+    result.put("error", error);
+} catch (e) {
+	throw "Unable to execute command: " + e;
+} finally {
+	if (session) {
+		session.disconnect();
+	}
+}
+return result;]]></script>
+</dunes-script-module>

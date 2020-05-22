@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<package>
+<elm src-category='null'><![CDATA[dunes://service.dunes.ch/Workflow?id='af46db18-e159-44d0-bc0a-d22a577ca139'&dunesName='Workflow']]></elm>
+<elm src-category='null'><![CDATA[dunes://service.dunes.ch/Workflow?id='41f4e059-3dc0-4085-ae9b-d9de73815a1d'&dunesName='Workflow']]></elm>
+<elm src-category='null'><![CDATA[dunes://service.dunes.ch/Action?id='1e0635b0-1a75-4dc6-8f9a-505ef7729114'&dunesName='Action'&name='runSSH'&category='com.vmk']]></elm>
+<elm src-category='null'><![CDATA[dunes://service.dunes.ch/Action?id='08b3e19b-77b7-406f-8995-1983d20dfc98'&dunesName='Action'&name='echoString'&category='com.vmk']]></elm>
+<used-plugin name='VC' version='6.5.0' />
+</package>

@@ -1,0 +1,17 @@
+formatVersion: 1
+inputs: {}
+resources:
+  net:
+    type: Cloud.Network
+    properties:
+      networkType: existing
+  vm:
+    type: Cloud.Machine
+    properties:
+      image: ubuntu18
+      flavor: medium
+      constraints:
+        - tag: 'env:vmw'
+      networks:
+        - network: '${resource.net.id}'
+          assignment: static

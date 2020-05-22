@@ -1,0 +1,90 @@
+#!/bin/bash
+CHECK_NETWORK_TICK=1
+CHECK_DISK_TICK=60
+CLOUD_INIT_DELAY=30
+function _check_network {
+    local DEV_NAME=`ip link | grep "^2:" | awk '{print $2}' | sed -e 's/://g'`
+    local GW_ADDR=`ip route | grep default | awk '{print $3}'`
+    local DNS_ADDR=`cat /etc/resolv.conf | grep nameserver | awk '{print $2}'`
+    # Check Vars
+    if [ -z "$DEV_NAME" ]; then return 1; fi
+    if [ -z "$GW_ADDR" ]; then return 1; fi
+    if [ -z "$DNS_ADDR" ]; then return 1; fi
+    # Check IP address
+    if [ -z "`ip addr show dev $DEV_NAME | grep "inet " | awk '{print $2}' | sed -e 's/\/.\+//g'`" ]; then return 1; fi
+    # Check Gateway
+    if [ "`ping -c 1 -W 1 $GW_ADDR 2>&1>/dev/null; echo $?`" != "0" ]; then return 1; fi
+    # Check DNS
+    if [ "`ping -c 1 -W 1 $DNS_ADDR 2>&1>/dev/null; echo $?`" != "0" ]; then return 1; fi
+    return 0
+}
+function check_network {
+    while true; do
+        _check_network
+        if [ $? ==  0 ]; then break; fi
+        sleep $CHECK_NETWORK_TICK
+    done
+}
+function format_disk {
+    local DISK=$1
+    local DISK_COUNT=0
+    if [ -f /etc/disk.count ]; then DISK_COUNT=`cat /etc/disk.count`; fi
+    DISK_COUNT=`expr $DISK_COUNT + 1`
+    parted $DISK --script mklabel gpt
+    parted $DISK --script mkpart primary 0% 100%
+    parted $DISK --script set 1 lvm on
+    pvcreate $DISK"1"
+    vgcreate disk$DISK_COUNT $DISK"1"
+    lvcreate -l 100%VG -n volume disk$DISK_COUNT
+    mkfs.xfs -f /dev/disk$DISK_COUNT/volume
+    ln -s /dev/disk$DISK_COUNT/volume /dev/volume$DISK_COUNT
+    echo $DISK_COUNT > /etc/disk.count
+    echo "/dev/disk$DISK_COUNT/volume" >> /etc/disk.list
+    echo $DISK | sed -e 's/\/dev\///g' >> /etc/disk.dev
+}
+function resize_disk {
+    local DISK=$1
+    local VG_NAME=`pvdisplay | grep -A 1 $DISK | grep "VG Name" | awk '{print $3}'`
+    sgdisk -e $DISK
+    parted $DISK --script resizepart 1 100%
+    pvresize $DISK"1"
+    lvresize -l 100%VG /dev/$VG_NAME/volume
+    mkdir -p /tmp/.disk_resize/$VG_NAME
+    mount /dev/$VG_NAME/volume /tmp/.disk_resize/$VG_NAME
+    xfs_growfs /dev/$VG_NAME/volume
+    umount /tmp/.disk_resize/$VG_NAME
+}
+function arrange_disk {
+    for HOST in /sys/class/scsi_host/*; do echo "- - -" > $HOST/scan; done
+    for DISK in `cat /etc/disk.dev 2>/dev/null`; do echo 1 > /sys/class/block/$DISK/device/rescan; done
+    local FDISK=""
+    for DISK in `fdisk -l 2>&1 | grep "Disk" | grep '/dev/sd' | awk '{print $2}' | grep -v sda | sed -e 's/://g'`; do
+        FDISK=`fdisk -l $DISK 2>&1`
+        if [ -z "`echo "$FDISK" | grep "primary"`" ]; then format_disk $DISK 2>&1 >/var/log/vmware-vmsvc.log; fi
+        if [ -n "`echo "$FDISK" | grep "GPT PMBR size mismatch"`" ]; then resize_disk $DISK 2>&1 >/var/log/vmware-vmsvc.log; fi
+    done
+}
+function _check_disk {
+    while true; do
+        arrange_disk
+        sleep $CHECK_DISK_TICK
+    done
+}
+function check_disk {
+    _check_disk 2>&1 >/dev/null &
+}
+function _start_cloud_init {
+	sleep $CLOUD_INIT_DELAY
+    /usr/bin/cloud-init init --local
+    /usr/bin/cloud-init init
+    /usr/bin/cloud-init modules --mode=config
+    /usr/bin/cloud-init modules --mode=final
+}
+function start_cloud_init {
+	_start_cloud_init 2>&1 >/var/log/cloud-init.log &
+}
+
+#arrange_disk
+check_network
+start_cloud_init
+#check_disk

@@ -1,0 +1,21 @@
+- hosts: all
+  gather_facts: no
+  sudo: true
+  vars:
+    ## Vars from Blueprint ##
+    # path: string
+    # timeout: integer
+    #########################
+    
+  tasks:
+  
+  - name: set default timeout
+    set_fact:
+      timeout: 600
+    when: timeout is not defined
+  
+  - name: check path
+    wait_for:
+      path: '{{path}}'
+      timeout: '{{timeout}}'
+    when: path is defined

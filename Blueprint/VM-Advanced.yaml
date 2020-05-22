@@ -1,0 +1,79 @@
+formatVersion: 1
+inputs:
+  cloud:
+    type: string
+    oneOf:
+      - title: VMware
+        const: 'env:vmw'
+      - title: AWS
+        const: 'env:aws'
+    default: 'env:vmw'
+    title: Location
+  net:
+    type: string
+    oneOf:
+      - title: Static Service
+        const: static
+      - title: Service Production
+        const: prod
+      - title: Service Staging
+        const: stage
+      - title: Service Testing
+        const: test
+      - title: New Department Network (SNAT)
+        const: dep
+      - title: New Development Network (BGP)
+        const: dev
+    default: test
+    title: Network
+  image:
+    type: string
+    enum:
+      - centos7
+      - ubuntu18
+    default: ubuntu18
+    title: Image
+  flavor:
+    type: string
+    oneOf:
+      - title: 1Core 2GRam
+        const: small
+      - title: 2Core 4GRam
+        const: medium
+      - title: 2Core 8GRam
+        const: large
+    default: medium
+    title: VM Spec
+  password:
+    type: string
+    default: password
+    title: Password
+resources:
+  net:
+    type: Cloud.Network
+    properties:
+      networkType: '${input.net=="dev"?"routed":(input.net=="dev"?"outbound":"existing")}'
+      constraints:
+        - tag: 'net:${input.net}'
+  vm:
+    type: Cloud.Machine
+    properties:
+      image: '${input.image}'
+      flavor: '${input.flavor}'
+      networks:
+        - network: '${resource.net.id}'
+          assignment: static
+      constraints:
+        - tag: '${input.cloud}'
+      cloudConfig: |
+        #cloud-config
+        users:
+          - name: ${env.requestedBy}
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+            groups: users, admin
+            lock_passwd: false
+        chpasswd:
+          list: |
+            ${env.requestedBy}:${input.password}
+          expire: False

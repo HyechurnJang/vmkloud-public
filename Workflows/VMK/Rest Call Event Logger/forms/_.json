@@ -1,0 +1,1 @@
+{"schema":{"msg":{"id":"msg","type":{"dataType":"string"},"label":"msg","constraints":{"required":false}}},"layout":{"pages":[{"id":"page_hzi03kvx","title":"General","sections":[{"id":"section_q19jilcd","fields":[{"id":"msg","display":"textField"}]}]}]},"itemId":""}

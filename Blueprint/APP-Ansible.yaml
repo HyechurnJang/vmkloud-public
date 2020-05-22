@@ -1,0 +1,61 @@
+formatVersion: 1
+inputs:
+  app:
+    type: string
+    enum:
+      - apache2
+      - nginx
+      - mariadb
+    default: apache2
+    title: Application
+  password:
+    type: string
+    default: password
+    title: Password
+resources:
+  app:
+    type: Cloud.Ansible
+    properties:
+      osType: linux
+      account: repo.vmkloud.com
+      username: vmkloud
+      authentication: publicPrivateKey
+      privateKeyFile: /ansible/secret
+      maxConnectionRetries: 10
+      inventoryFile: '/ansible/hosts/${env.deploymentId}/hosts'
+      host: '${resource.vm.*}'
+      playbooks:
+        provision:
+          - '/ansible/playbooks/${input.app}.yaml'
+  net:
+    type: Cloud.Network
+    properties:
+      networkType: existing
+  vm:
+    type: Cloud.Machine
+    properties:
+      image: ubuntu18
+      flavor: medium
+      networks:
+        - network: '${resource.net.id}'
+          assignment: static
+      constraints:
+        - tag: 'env:vmw'
+      cloudConfig: |
+        #cloud-config
+        users:
+          - name: vmkloud
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+            groups: users, admin
+            ssh_authorized_keys:
+              - ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAQEAi/KwSSOccFcKrtavBQuNtvp8o7HX/iJGb/t1P8zCUkfjL7FFkVh7wnzvstPU49r5rxnp6umWJ5vXM2ImzJXVjePDcWtvRK4z3JIHJt275NHqlc0ETJrFNMD5B+Ad8yX1+pXEavK92mDvIapPC2e4HowQVoU+nDoJrOmZHduNcy1ZV62fLAzCaWwdTjFWng9ggZGIEdmT43I5nAaRYd9rkX0SZPciSoEA/CPliilNwcnUxBXMxZtauKc+3uuniQNMt5EpjQHVT8+206ysa0GUhwKbKg1av30tcmXLX7vJ5CzbZMjRzE9iztK688MetHnzMe/j8+Sm/bOPL+sa2zInlQ==
+          - name: ${env.requestedBy}
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+            groups: users, admin
+            lock_passwd: false
+        chpasswd:
+          list: |
+            ${env.requestedBy}:${input.password}
+          expire: False

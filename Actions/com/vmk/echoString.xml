@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<dunes-script-module name="echoString" result-type="Properties" api-version="6.0.0" id="08b3e19b-77b7-406f-8995-1983d20dfc98" version="0.0.0" category-name="com.vmk">
+  <param n="input" t="Properties"><![CDATA[]]></param>
+  <script encoded="false"><![CDATA[System.log(input);
+input.put("echo", "OK");
+return input;]]></script>
+</dunes-script-module>

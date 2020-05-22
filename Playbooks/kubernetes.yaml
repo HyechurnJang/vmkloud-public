@@ -1,0 +1,159 @@
+- hosts: all
+  gather_facts: no
+  sudo: true
+  vars:
+    ## Vars from Blueprint ##
+    ## Vars generated #######
+    #########################
+    
+  tasks:
+  
+  - name: get ubuntu distribution
+    shell: 'lsb_release -cs'
+    register: lsb_release
+  
+  - name: add docker repository key
+    apt_key:
+      url: 'https://download.docker.com/linux/ubuntu/gpg'
+  
+  - name: add docker repository
+    apt_repository:
+      repo: 'deb [arch=amd64] https://download.docker.com/linux/ubuntu {{lsb_release.stdout}} stable'
+  
+  - name: add kubernetes repository key
+    apt_key:
+      url: 'https://packages.cloud.google.com/apt/doc/apt-key.gpg'
+  
+  - name: add kubernetes repository
+    apt_repository:
+      repo: 'deb http://apt.kubernetes.io/ kubernetes-xenial main'
+  
+  - name: update and upgrade apt repository
+    apt:
+      update_cache: yes
+      upgrade: dist
+  
+  - name: install packages
+    apt:
+      pkg:
+      - docker-ce
+      - kubelet
+      - kubeadm
+      - kubectl
+  
+  - name: swap off at runtime
+    shell: 'swapoff -a'
+  
+  - name: swap off on fstab
+    replace:
+      path: /etc/fstab
+      regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+      replace: '# \1'
+  
+  # Join Worker Node
+  - name: join worker
+    shell: '{{hostvars[groups.master[0]].joincmd}}'
+    when:
+    - '"worker" in group_names'
+    - joined is not defined
+  
+  - name: save worker status
+    local_action:
+      module: blockinfile
+      path: '{{inventory_dir}}/host_vars/{{inventory_hostname}}/kube-node.yaml'
+      create: yes
+      block: |
+        node_type: 'worker'
+        joined: yes
+    when:
+    - '"worker" in group_names'
+    - joined is not defined
+  
+  # Init Master Node
+  - name: check cni
+    set_fact:
+      cni: 'calico'
+    when:
+    - '"master" in group_names'
+    - cni is not defined
+  
+  - name: check calico network cidr
+    set_fact:
+      pod_network_cidr: '192.168.0.0/16'
+    when:
+    - '"master" in group_names'
+    - pod_network_cidr is not defined
+    - cni == 'calico'
+  
+  - name: check flannel network cidr
+    set_fact:
+      pod_network_cidr: '10.244.0.0/16'
+    when:
+    - '"master" in group_names'
+    - pod_network_cidr is not defined
+    - cni == 'flannel'
+
+  - name: check api advertise address
+    set_fact:
+      api_advertise_address: '{{inventory_hostname}}'
+    when:
+    - '"master" in group_names'
+    - api_advertise_address is not defined
+
+  - name: run kubeadm init
+    shell: 'kubeadm init --pod-network-cidr={{pod_network_cidr}} --apiserver-advertise-address={{api_advertise_address}}'
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined
+  
+  - name: create kubeconfig directory on root
+    file:
+      path: /root/.kube
+      state: directory
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined
+  
+  - name: copy kubeconfig to root
+    shell: |
+      cp -i /etc/kubernetes/admin.conf /root/.kube/config
+      chown root:root /root/.kube/config
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined
+
+  - name: create kubejoin
+    shell: 'kubeadm token create --print-join-command'
+    register: token
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined
+    
+  - name: install calico network
+    shell: 'kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml'
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined
+    - cni == 'calico'
+  
+  - name: install flannel network
+    shell: 'kubectl apply -f https://github.com/coreos/flannel/raw/master/Documentation/kube-flannel.yml'
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined
+    - cni == 'flannel'
+
+  - name: save master status
+    local_action:
+      module: blockinfile
+      path: '{{inventory_dir}}/host_vars/{{inventory_hostname}}/kube-node.yaml'
+      create: yes
+      block: |
+        node_type: 'master'
+        cni: '{{cni}}'
+        pod_network_cidr: '{{pod_network_cidr}}'
+        api_advertise_address: '{{api_advertise_address}}'
+        joincmd: '{{token.stdout}}'
+    when:
+    - '"master" in group_names'
+    - joincmd is not defined

@@ -1,0 +1,87 @@
+- hosts: all
+  gather_facts: no
+  sudo: true
+  vars:
+    ## Vars from Blueprint ##
+    # name: string
+    # index: integer
+    # addrs: []
+    ## Vars generated #######
+    hostnames: []
+    hostaddrs: []
+    siblnames: []
+    sibladdrs: []
+    #########################
+    
+  tasks:
+  
+  - name: get cluster count
+    set_fact:
+      count: '{{addrs | length}}'
+  
+  - name: get node information
+    set_fact:
+      hostname: '{{name}}-{{index + 1}}'
+      hostaddr: '{{addrs[index]}}'
+  
+  - name: get cluster information
+    set_fact:
+      hostnames: '{{hostnames}} + ["{{name}}-{{i + 1}}"]'
+      hostaddrs: '{{hostaddrs}} + ["{{addrs[i]}}"]'
+    loop: '{{addrs}}'
+    loop_control:
+      index_var: i
+    
+  - name: get sibling information
+    set_fact:
+      siblnames: '{{siblnames}} + ["{{name}}-{{i + 1}}"]'
+      sibladdrs: '{{sibladdrs}} + ["{{addrs[i]}}"]'
+    loop: '{{addrs}}'
+    loop_control:
+      index_var: i
+    when: i != index
+    
+  - name: save information to facts
+    local_action:
+      module: blockinfile
+      path: '{{inventory_dir}}/host_vars/{{inventory_hostname}}/cluster.yaml'
+      create: yes
+      block: |
+        count: {{count}}
+        index: {{index}}
+        hostname: {{hostname}}
+        hostaddr: {{hostaddr}}
+        hostnames: [{{hostnames | join(",")}}]
+        hostaddrs: [{{hostaddrs | join(",")}}]
+        sib_names: [{{siblnames | join(",")}}]
+        sib_addrs: [{{sibladdrs | join(",")}}]
+  
+  - name: save information to rc
+    blockinfile:
+      path: '/etc/cluster.rc'
+      create: yes
+      block: |
+        COUNT="{{count}}"
+        INDEX="{{index}}"
+        HOSTNAME="{{hostname}}"
+        HOSTADDR="{{hostaddr}}"
+        HOSTNAMES="{{hostnames | join(" ")}}"
+        HOSTADDRS="{{hostaddrs | join(" ")}}"
+        SIB_NAMES="{{siblnames | join(" ")}}"
+        SIB_ADDRS="{{sibladdrs | join(" ")}}"
+  
+  - name: remove hosts from /etc/hosts file
+    lineinfile:
+      path: '/etc/hosts'
+      regexp: 'ANSIBLE_CLUSTER'
+      state: absent
+  
+  - name: insert hosts to /etc/hosts file
+    lineinfile:
+      path: '/etc/hosts'
+      line: '{{item.1}}    {{item.0}}    #ANSIBLE_CLUSTER'
+    with_together:
+      - '{{hostnames}}'
+      - '{{hostaddrs}}'
+      
+      

@@ -1,0 +1,160 @@
+formatVersion: 1
+inputs:
+  workers:
+    type: integer
+    default: 1
+    title: '# of Worker'
+  cni:
+    type: string
+    enum:
+      - flannel
+      - calico
+    default: calico
+    title: CNI Plugin
+  password:
+    type: string
+    default: password
+    title: Password
+resources:
+  ingress:
+    type: Cloud.LoadBalancer
+    properties:
+      network: '${resource.service_net.id}'
+      instances: '${resource.worker[*].id}'
+      internetFacing: false
+      routes:
+        - protocol: HTTP
+          port: '80'
+          instanceProtocol: HTTP
+          instancePort: '80'
+          healthCheckConfiguration:
+            protocol: TCP
+            port: '22'
+            intervalSeconds: 30
+            timeoutSeconds: 5
+            unhealthyThreshold: 5
+            healthyThreshold: 2
+  master:
+    type: Cloud.Machine
+    properties:
+      image: ubuntu18
+      flavor: large
+      constraints:
+        - tag: 'env:vmw'
+      networks:
+        - network: '${resource.service_net.id}'
+          assignment: static
+      cloudConfig: |
+        #cloud-config
+        users:
+          - name: ${env.requestedBy}
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+            groups: users, admin
+            lock_passwd: false
+        chpasswd:
+          list: |
+            ${env.requestedBy}:${input.password}
+          expire: False
+        write_files:
+          - path: /opt/kube-init.sh
+            permissions: '0744'
+            owner: root:root
+            content: |
+              #!/bin/bash
+              # Set Vars
+              KUBE_CNI="${input.cni}"
+              if [ "$KUBE_CNI" == "calico" ]; then
+              POD_NETWORK_CIDR="192.168.0.0/16"
+              CNI_SOURCE="https://docs.projectcalico.org/manifests/calico.yaml"
+              elif [ "$KUBE_CNI" == "flannel" ]; then
+              POD_NETWORK_CIDR="10.244.0.0/16"
+              CNI_SOURCE="https://github.com/coreos/flannel/raw/master/Documentation/kube-flannel.yml"
+              else
+              KUBE_CNI="calico"
+              POD_NETWORK_CIDR="192.168.0.0/16"
+              CNI_SOURCE="https://docs.projectcalico.org/manifests/calico.yaml"
+              fi
+              # Install Packages
+              curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+              echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+              curl https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+              echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+              apt update && apt upgrade -y
+              set +e; apt install docker-ce -y; set -e
+              apt install kubelet kubeadm kubectl -y
+              swapoff -a
+              sed -i '/swap/d' /etc/fstab
+              # Init Kubernetes
+              #kubeadm init --pod-network-cidr=$POD_NETWORK_CIDR --apiserver-advertise-address=${self.address}
+              kubeadm init --pod-network-cidr=$POD_NETWORK_CIDR
+              mkdir -p /root/.kube /home/${env.requestedBy}/.kube
+              cp -i /etc/kubernetes/admin.conf /root/.kube/config
+              cp -i /etc/kubernetes/admin.conf /home/${env.requestedBy}/.kube/config
+              chown root:root /root/.kube/config
+              chown -R ${env.requestedBy}:${env.requestedBy} /home/${env.requestedBy}/.kube
+              # Create Join File
+              kubeadm token create --print-join-command > /etc/kube-join.cmd
+              # Start CNI
+              su - root -c "kubectl apply -f $CNI_SOURCE"
+              # Sync Message Sender
+              while true; do nc -q 0 -l 200 2>&1>/dev/null < /etc/kube-join.cmd; done &
+              cat <<EOF>> /usr/bin/vra-init
+              while true; do nc -q 0 -l 200 2>&1>/dev/null < /etc/kube-join.cmd; done &
+              EOF
+        runcmd:
+          - /opt/kube-init.sh
+          - rm -rf /opt/kube-init.sh
+  worker:
+    type: Cloud.Machine
+    properties:
+      image: ubuntu18
+      flavor: large
+      count: '${input.workers}'
+      constraints:
+        - tag: 'env:vmw'
+      networks:
+        - network: '${resource.service_net.id}'
+          assignment: static
+      cloudConfig: |
+        #cloud-config
+        users:
+          - name: ${env.requestedBy}
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+            groups: users, admin
+            lock_passwd: false
+        chpasswd:
+          list: |
+            ${env.requestedBy}:${input.password}
+          expire: False
+        write_files:
+          - path: /opt/kube-init.sh
+            permissions: '0744'
+            owner: root:root
+            content: |
+              #!/bin/bash
+              # Sync Message Getter
+              RETRY_ERR_COUNT=10; RETRY_CON_COUNT=12; RETRY_DELAY=5
+              set +e; for((i=1;i<=$RETRY_ERR_COUNT;i+=1)); do JOIN_CMD=`curl -s -S --retry $RETRY_CON_COUNT --retry-delay $RETRY_DELAY --retry-connrefused ${master.address}:200`; [ `echo $?` == 0 ] && break; echo "Retry $i"; done; set -e
+              # Install Packages
+              curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+              echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+              curl https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+              echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+              apt update && apt upgrade -y
+              set +e; apt install docker-ce -y; set -e
+              apt install kubelet kubeadm kubectl -y
+              swapoff -a
+              sed -i '/swap/d' /etc/fstab
+              # Join Kubernetes
+              $JOIN_CMD
+        runcmd:
+          - /opt/kube-init.sh
+          - rm -rf /opt/kube-init.sh
+  service_net:
+    type: Cloud.Network
+    properties:
+      networkType: '${"routed"}'
+      constraints:
+        - tag: 'net:dev'
