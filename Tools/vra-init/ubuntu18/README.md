@@ -21,6 +21,12 @@ $ rm -rf /home/<USER_ACCOUNT>
 $ vi /etc/ssh/sshd_config
 PermitRootLogin yes
 $ systemctl restart ssh
+$ vi /etc/systemd/system.conf
+DefaultTimeoutStopSec=5s
+$ systemctl daemon-reload
+$ vi /etc/default/grub
+GRUB_CMDLINE_LINUX_DEFAULT="quiet noresume"
+$ update-grub
 $ poweroff
 Remove VM's Install Media at vCenter
 Start VM
